@@ -11,11 +11,6 @@
 #define SERVER_IP "127.0.0.1"
 
 
-void _send(int, char *, unsigned int);
-void save_file(int, const char *);
-long get_file_size(const char *);
-
-
 void help(char *prog_name){
   printf("<Usage>: %s <File path to send> \n", prog_name);
   exit(0);
