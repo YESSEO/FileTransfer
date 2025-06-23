@@ -12,7 +12,7 @@
 
 
 void _send(int, char *, unsigned int);
-char *save_file(const char *);
+void save_file(int, const char *);
 long get_file_size(const char *);
 
 
@@ -21,6 +21,22 @@ void help(char *prog_name){
   exit(0);
 }
 
+ssize_t recv_all(int sockfd, void *buffer, size_t length) {
+    size_t total = 0;
+    char *ptr = buffer;
+
+    while (total < length) {
+        ssize_t bytes = recv(sockfd, ptr + total, length - total, 0);
+        if (bytes <= 0) {
+            return -1;
+        }
+        total += bytes;
+    }
+
+    return total;
+}
+
+
 
 int main(int argc, char *argv[]){
 
@@ -28,21 +44,9 @@ int main(int argc, char *argv[]){
   if(argc < 2)
     help(argv[0]);
 
-  /*
-  File struct 
-  */
-
-  struct _file{
-    FILE *name;
-    long size;
-    char *mim_type;
-    char content[];
-  };
-
   char *filename;
   filename = argv[1];
-
-  printf("[DEBUG] filename: '%s'. \n", filename);
+  printf("[DEBUG] - Full path: '%s'. \n", filename);
   int sockfd, new_sockfd, sock_size;
   struct sockaddr_in client_addr;
   socklen_t recv_size;
@@ -76,48 +80,57 @@ int main(int argc, char *argv[]){
     dump(buffer, bytes_recieved);
   }
 
+  save_file(sockfd, filename);
 
-  /* Attempting to read files */
-  /* Save file struct */
-
-  // old func
-  // char *saved_file_ptr = save_file(filename);
-
-}
-
-void _send(int sockfd, char *message, unsigned int size){
-  send(sockfd, message, size, 0);
+  EXIT_SUCCESS;
 }
 
 
-char *save_file(const char *filename){
+void send_all(int sockfd, const void *buffer, size_t length){
+  size_t total = 0;
+  const char *ptr = buffer;
 
-  FILE *file;
-  file = fopen(filename, "rb");
-
-  if(file == NULL)
-    fatal("openning file");
-
-
-  fseek(file, 0, SEEK_END);
-  long filesize = ftell(file);
-  fseek(file, 0, SEEK_SET);
-
-  char *buffer = (char *) malloc(filesize + 1);
-
-  if(buffer == NULL)
-    fatal("Allocating memory for reading file");
-
-  size_t bytes_read = fread(buffer, 1, filesize, file);
-  if(bytes_read != filesize){
-    free(buffer);
-    fclose(file);
-    fatal("Reading file");
+  while(total < length){
+      ssize_t sent = send(sockfd, ptr + total, length - total, 0);
+      if(sent <= 0 ){
+        fatal("in send");
+      }
+      total += sent;
   }
+  
+}
 
-  buffer[filesize] = '\0';
-  fclose(file);
+void save_file(int sockfd, const char *file_path){
 
-  return buffer;
+  const char *filename = strrchr(file_path, '/');
+  filename = filename ? filename + 1 : file_path;
+
+  uint32_t file_name_len = htonl(strlen(filename));
+  send_all(sockfd, &file_name_len, sizeof(file_name_len));  
+  send_all(sockfd, filename, strlen(filename));  
+
+  FILE *pf = fopen(file_path, "rb");
+  if(!pf)
+    fatal("opening file");
+
+  
+  fseek(pf, 0, SEEK_END);
+  uint64_t size = ftell(pf);
+  
+  printf("[DEBUG] File size: %ld\n", size);
+  rewind(pf);
+
+  // sending file size
+  uint32_t file_size;
+  file_size = htonl(size);
+  send_all(sockfd, &file_size, sizeof(file_size));  
+
+ // Sending file
+ char buffer[4094];
+ size_t bytes;
+
+ while((bytes = fread(buffer, 1, sizeof(buffer), pf)) >  0) {  
+    send_all(sockfd, buffer, bytes);
+ }
 
 }
