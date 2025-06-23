@@ -9,6 +9,7 @@
 #define PORT 7088
 
 unsigned int copy_file(unsigned char *, unsigned int, char *);
+void recv_file(int);
 
 int main(void){
 
@@ -58,36 +59,59 @@ int main(void){
     /*Sending Banner*/
     send(new_sockfd, banner, strlen(banner),0 );
 
-    // send options
-
-    recv_size = recv(new_sockfd, &buffer, sizeof(buffer), 0);
-    
-    while(recv_size > 0){
-      printf("RCV: %d bytes\n", recv_size);
-      if (debug == 1)
-        dump(buffer, recv_size);
-      /* 
-        file copy here 
-      */
-      recv_size = recv(new_sockfd, &buffer, sizeof(buffer), 0);
-    }
+    recv_file(new_sockfd);
   }
 }
 
+ssize_t recv_all(int sockfd, void *buffer, size_t length){
+  size_t total = 0;
+  char *ptr = buffer;
 
-unsigned int copy_file(unsigned char *buffer, unsigned int size, char *filename){
-  size_t buffer_size = strlen(buffer);
+  while(total < length){
+    ssize_t bytes = recv(sockfd, ptr + total, length - total, 0);
+    if(bytes <= 0)
+      fatal("in recv");
+    total += bytes;
 
-  FILE *file = fopen(filename, "a");
-  if(file == NULL)
-    fatal("Creating file");
-
-  size_t bytes_written = fwrite(buffer, 1, buffer_size, file);
-  if(bytes_written != buffer_size)
-    fatal("Error writing file");
-  
-    if(fclose(file))
-      fatal("In closing file");
-
-    return 0;
+  }
+  return total;
 }
+
+void recv_file(int sockfd){
+  uint32_t name_len_net;
+  if(recv_all(sockfd, &name_len_net, sizeof(name_len_net)) <= 0)
+    fatal("recv name_len");
+
+  name_len_net = ntohl(name_len_net);
+  printf("[DEBUG] Filename is %d bytes\n", name_len_net);
+
+  // Get file name
+  char *filename;
+  filename = (char *) malloc(name_len_net +1);
+  recv_all(sockfd, filename, name_len_net);
+  filename[name_len_net] = '\0';
+  printf("[DEBUG] Filename '%s'\n", filename);
+
+ // Get  file size
+ uint32_t file_size;
+ if(recv_all(sockfd, &file_size, sizeof(file_size)) <=0){
+  fatal("recv file size");
+ }
+ uint32_t size = ntohl(file_size);
+ printf("[DEBUG] file size : %d\n", size);
+
+ char *buffer = malloc(size);
+ if(!buffer) fatal("allocating  file size");
+ 
+ recv_all(sockfd, buffer, size);
+
+
+ // Write file
+ FILE *fd;
+ fd = fopen(filename, "wb");
+ if(!fd) fatal("openning file");
+ fwrite(buffer, size, 1, fd);
+ fclose(fd);
+
+ free(buffer);
+ }
